@@ -5,6 +5,7 @@ from ultralytics import YOLO
 import threading
 import queue
 import time
+import os
 
 app = Flask(__name__)
 
@@ -21,28 +22,50 @@ class CameraReader(threading.Thread):
         self.height = height
         print(f"[INFO] Camera reader initialized with resolution: {width}x{height}")
 
+    def find_camera(self):
+        """Try to find an available camera by testing different indices"""
+        for i in range(10):  # Try first 10 indices
+            print(f"[INFO] Trying camera index {i}...")
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                ret, frame = cap.read()
+                if ret and frame is not None:
+                    print(f"[INFO] Successfully opened camera at index {i}")
+                    return cap
+                cap.release()
+        return None
+
     def run(self):
         print("[INFO] Camera reader thread started")
         
         try:
-            # Create a VideoCapture from the default camera
-            cap = cv2.VideoCapture(0)
-            if not cap.isOpened():
-                print("[ERROR] Failed to open camera with OpenCV")
+            # Try to find an available camera
+            cap = self.find_camera()
+            if cap is None:
+                print("[ERROR] No camera found. Please check your camera connection.")
                 return
-                
+
             # Set camera properties
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
             cap.set(cv2.CAP_PROP_FPS, 30)
             
-            print(f"[INFO] Successfully opened camera with OpenCV")
+            # Verify camera settings
+            actual_width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+            actual_height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+            actual_fps = cap.get(cv2.CAP_PROP_FPS)
+            print(f"[INFO] Camera settings - Width: {actual_width}, Height: {actual_height}, FPS: {actual_fps}")
             
             while self.running:
                 ret, frame = cap.read()
-                if not ret:
+                if not ret or frame is None:
                     print("[WARNING] Failed to read frame from camera")
                     time.sleep(0.1)
+                    continue
+                
+                # Verify frame is valid
+                if frame.size == 0:
+                    print("[WARNING] Received empty frame")
                     continue
                     
                 # Put the frame in the queue
@@ -60,6 +83,8 @@ class CameraReader(threading.Thread):
             
         except Exception as e:
             print(f"[ERROR] Camera reader thread error: {str(e)}")
+            import traceback
+            traceback.print_exc()
             
     def read(self):
         try:
